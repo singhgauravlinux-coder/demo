@@ -16,15 +16,14 @@ global:
   envName: uat
   namespace: bakery-uat
   # Overwritten by CI on every merge to main — see ci.yml.
-  imageTag: "replace-with-ci-sha"
-
+  imageTag: "b721ad0"
 secretsManagement:
   mode: external-secrets
   externalSecrets:
     enabled: true
     refreshInterval: 1h
     secretStoreRef:
-      name: azure-keyvault-uat     # <-- point at your UAT SecretStore/ClusterSecretStore
+      name: azure-keyvault-uat # <-- point at your UAT SecretStore/ClusterSecretStore
       kind: ClusterSecretStore
     dbSecret:
       remoteKeys:
@@ -37,33 +36,28 @@ secretsManagement:
         keyId: bakery-uat-razorpay-key-id
         keySecret: bakery-uat-razorpay-key-secret
         webhookSecret: bakery-uat-razorpay-webhook-secret
-
 resourcePresets:
   small:
-    requests: { cpu: 25m, memory: 48Mi }
-    limits: { cpu: 150m, memory: 96Mi }
+    requests: {cpu: 25m, memory: 48Mi}
+    limits: {cpu: 150m, memory: 96Mi}
   medium:
-    requests: { cpu: 50m, memory: 96Mi }
-    limits: { cpu: 300m, memory: 192Mi }
+    requests: {cpu: 50m, memory: 96Mi}
+    limits: {cpu: 300m, memory: 192Mi}
   large:
-    requests: { cpu: 100m, memory: 192Mi }
-    limits: { cpu: 500m, memory: 384Mi }
-
+    requests: {cpu: 100m, memory: 192Mi}
+    limits: {cpu: 500m, memory: 384Mi}
 postgres:
   storage: 2Gi
-
 redis:
   persistence:
     enabled: false
-
 ingress:
   host: uat.bakery.local
   dbHost: db-uat.bakery.local
   adminer:
-    enabled: true   # convenient for UAT data inspection; disabled in prod
+    enabled: true # convenient for UAT data inspection; disabled in prod
   tls:
     enabled: false
-
 services:
   api-gateway:
     replicas: 1
