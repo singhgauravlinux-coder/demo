@@ -10,6 +10,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const TOKEN_SECRET = process.env.AUTH_TOKEN_SECRET || 'dev-only-secret-change-me';
 const TOKEN_TTL_MS = Number(process.env.AUTH_TOKEN_TTL_MS || 24 * 60 * 60 * 1000);
+const PAYLOAD_SECRET = process.env.AUTH_PAYLOAD_SECRET || 'dev-only-payload-secret-change-me';
 
 // All logs are structured JSON on stdout (12-factor), ready for
 // Fluent Bit / Loki / ELK collection from the container runtime.
@@ -23,6 +24,8 @@ const logger = pino({
 
 if (TOKEN_SECRET === 'dev-only-secret-change-me')
   logger.warn({ event: 'insecure_config' }, 'AUTH_TOKEN_SECRET is not set — using an insecure default');
+if (PAYLOAD_SECRET === 'dev-only-payload-secret-change-me')
+  logger.warn({ event: 'insecure_config' }, 'AUTH_PAYLOAD_SECRET is not set — using an insecure default');
 
 // --- Password hashing (scrypt, no native deps) --------------------------
 function hashPassword(password) {
@@ -55,6 +58,34 @@ function verifyToken(token) {
     if (!data.sub || Date.now() > data.exp) return null;
     return data.sub;
   } catch { return null; }
+}
+
+// --- Payload encryption (AES-256-GCM) -------------------------------
+// Request and response BODIES travel as a single opaque `token` string
+// instead of plain JSON — e.g. { token: "<iv>.<tag>.<ciphertext>" }.
+// The key is derived once from AUTH_PAYLOAD_SECRET (set a long random
+// value in production; a fixed derivation salt is fine since the secret
+// itself is what provides the entropy).
+const PAYLOAD_KEY = crypto.scryptSync(PAYLOAD_SECRET, 'crumb-payload-salt', 32);
+
+function encryptPayload(data) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', PAYLOAD_KEY, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(data), 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return [iv, tag, ciphertext].map((b) => b.toString('base64url')).join('.');
+}
+function decryptPayload(token) {
+  const parts = String(token || '').split('.');
+  if (parts.length !== 3) throw new Error('malformed token');
+  const [ivB64, tagB64, ctB64] = parts;
+  const iv = Buffer.from(ivB64, 'base64url');
+  const tag = Buffer.from(tagB64, 'base64url');
+  const ciphertext = Buffer.from(ctB64, 'base64url');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', PAYLOAD_KEY, iv);
+  decipher.setAuthTag(tag);
+  const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  return JSON.parse(plaintext);
 }
 
 // --- Storage: PostgreSQL when DATABASE_URL is set, in-memory otherwise ---
@@ -123,29 +154,60 @@ app.get('/ready', async (req, res) => {
   }
 });
 
+// --- Payload encrypt/decrypt utility API ---
+// Lets any trusted caller (frontend, gateway, another service, Postman)
+// turn plain JSON into an opaque token, or turn a token back into JSON,
+// without needing its own copy of the AES logic or the shared secret.
+app.post('/auth/encrypt', (req, res) => {
+  try {
+    res.json({ token: encryptPayload(req.body || {}) });
+  } catch (err) {
+    res.status(400).json({ error: 'Unable to encrypt payload' });
+  }
+});
+app.post('/auth/decrypt', (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: 'token is required' });
+    res.json({ data: decryptPayload(token) });
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid or corrupt token' });
+  }
+});
+
 // --- Login, registration and token verification ---
+// Both endpoints take { token: "<encrypted>" } instead of plain
+// { email, password, ... } and return { token: "<encrypted>" } instead
+// of a plain JSON body — decrypt with POST /auth/decrypt (or your own
+// AES-256-GCM client using the same shared secret).
 app.post('/auth/login', async (req, res, next) => {
   try {
-    const { email, password } = req.body || {};
+    let body;
+    try { body = decryptPayload(req.body && req.body.token); }
+    catch { return res.status(400).json({ error: 'Invalid or corrupt token' }); }
+    const { email, password } = body || {};
     const account = email ? await store.find(email) : null;
     if (!account || !verifyPassword(password || '', account.passwordHash)) {
       req.log.warn({ event: 'login_failed', email }, 'invalid credentials');
       return res.status(401).json({ error: 'Invalid email or password' });
     }
     req.log.info({ event: 'login_success', userId: account.userId }, 'user logged in');
-    res.json({ token: signToken(account.userId), userId: account.userId, name: account.name });
+    res.json({ token: encryptPayload({ authToken: signToken(account.userId), userId: account.userId, name: account.name }) });
   } catch (err) { next(err); }
 });
 
 app.post('/auth/register', async (req, res, next) => {
   try {
-    const { email, password, name } = req.body || {};
+    let body;
+    try { body = decryptPayload(req.body && req.body.token); }
+    catch { return res.status(400).json({ error: 'Invalid or corrupt token' }); }
+    const { email, password, name } = body || {};
     if (!email || !password) return res.status(400).json({ error: 'email and password are required' });
     if (password.length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
     const created = await store.create(email, name || email, hashPassword(password));
     if (!created) return res.status(409).json({ error: 'An account with that email already exists' });
     req.log.info({ event: 'user_registered', userId: created.userId }, 'new account created');
-    res.status(201).json({ userId: created.userId });
+    res.status(201).json({ token: encryptPayload({ userId: created.userId }) });
   } catch (err) { next(err); }
 });
 

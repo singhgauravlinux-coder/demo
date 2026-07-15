@@ -34,16 +34,18 @@ module.exports = {
     // --------------------------------------------------------------- auth
     '/auth/register': {
       post: {
-        tags: ['auth'], summary: 'Register a new account',
-        requestBody: jsonBody({ email: str('jo@example.com'), password: str('s3cret!') }, ['email', 'password']),
-        responses: { 201: ok('Account created'), 409: err('Email already registered') }
+        tags: ['auth'], summary: 'Register a new account (encrypted payload)',
+        description: 'Body and response are AES-256-GCM encrypted — see /auth/encrypt and /auth/decrypt.',
+        requestBody: jsonBody({ token: str('<iv>.<tag>.<ciphertext> — encrypt {email, password, name} first via /auth/encrypt') }, ['token']),
+        responses: { 201: ok('Account created — response body is { token } (encrypted { userId })'), 400: err('Invalid or corrupt token'), 409: err('Email already registered') }
       }
     },
     '/auth/login': {
       post: {
-        tags: ['auth'], summary: 'Log in, returns a bearer token',
-        requestBody: jsonBody({ email: str('jo@example.com'), password: str('s3cret!') }, ['email', 'password']),
-        responses: { 200: ok('Token issued'), 401: err('Invalid credentials') }
+        tags: ['auth'], summary: 'Log in (encrypted payload), returns an encrypted bearer token',
+        description: 'Body and response are AES-256-GCM encrypted — see /auth/encrypt and /auth/decrypt.',
+        requestBody: jsonBody({ token: str('<iv>.<tag>.<ciphertext> — encrypt {email, password} first via /auth/encrypt') }, ['token']),
+        responses: { 200: ok('Response body is { token } (encrypted { authToken, userId, name })'), 400: err('Invalid or corrupt token'), 401: err('Invalid credentials') }
       }
     },
     '/auth/verify': {
@@ -51,6 +53,20 @@ module.exports = {
         tags: ['auth'], summary: 'Verify a bearer token',
         parameters: [hdr('authorization', 'Bearer <token>')],
         responses: { 200: ok('Token valid'), 401: err('Invalid or expired token') }
+      }
+    },
+    '/auth/encrypt': {
+      post: {
+        tags: ['auth'], summary: 'Encrypt an arbitrary JSON payload into an opaque token',
+        requestBody: jsonBody({ email: str('jo@example.com'), password: str('s3cret!') }),
+        responses: { 200: ok('Response body is { token }') }
+      }
+    },
+    '/auth/decrypt': {
+      post: {
+        tags: ['auth'], summary: 'Decrypt an opaque token back into its JSON payload',
+        requestBody: jsonBody({ token: str('<iv>.<tag>.<ciphertext>') }, ['token']),
+        responses: { 200: ok('Response body is { data }'), 400: err('Invalid or corrupt token') }
       }
     },
     // -------------------------------------------------------------- users

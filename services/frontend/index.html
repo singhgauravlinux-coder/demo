@@ -879,7 +879,8 @@
     if (!apiUp) { hint.className = 'hint err'; hint.textContent = 'Sign-in is unavailable right now — please try again shortly.'; return; }
 
     if (authMode === 'register') {
-      sendJSON('POST', '/auth/register', { email: email, password: pass, name: document.getElementById('reg-name').value.trim() })
+      sendJSON('POST', '/auth/encrypt', { email: email, password: pass, name: document.getElementById('reg-name').value.trim() })
+        .then(function (enc) { return sendJSON('POST', '/auth/register', { token: enc.token }); })
         .then(function () {
           hint.className = 'hint ok'; hint.textContent = 'Account created — signing you in…';
           return doLogin(email, pass);
@@ -893,9 +894,13 @@
   });
 
   function doLogin(email, pass) {
-    return sendJSON('POST', '/auth/login', { email: email, password: pass }).then(function (data) {
+    return sendJSON('POST', '/auth/encrypt', { email: email, password: pass })
+      .then(function (enc) { return sendJSON('POST', '/auth/login', { token: enc.token }); })
+      .then(function (resp) { return sendJSON('POST', '/auth/decrypt', { token: resp.token }); })
+      .then(function (decoded) {
+      var data = decoded.data;
       var guestItems = cart.slice();
-      session = { token: data.token, userId: data.userId, name: data.name || email.split('@')[0] };
+      session = { token: data.authToken, userId: data.userId, name: data.name || email.split('@')[0] };
       localStorage.setItem('crumb.session', JSON.stringify(session));
       renderAuthState();
       closePanels();

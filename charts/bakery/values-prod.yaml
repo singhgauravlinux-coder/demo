@@ -32,6 +32,7 @@ secretsManagement:
         POSTGRES_PASSWORD: bakery-prod-postgres-password
         POSTGRES_DB: bakery-prod-postgres-db
         AUTH_TOKEN_SECRET: bakery-prod-auth-token-secret
+        AUTH_PAYLOAD_SECRET: bakery-prod-auth-payload-secret
     paymentSecret:
       remoteKeys:
         keyId: bakery-prod-razorpay-key-id

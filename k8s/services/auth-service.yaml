@@ -50,6 +50,11 @@ spec:
                 secretKeyRef:
                   name: bakery-db-secret
                   key: AUTH_TOKEN_SECRET
+            - name: AUTH_PAYLOAD_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: bakery-db-secret
+                  key: AUTH_PAYLOAD_SECRET
           readinessProbe:
             httpGet:
               path: /ready

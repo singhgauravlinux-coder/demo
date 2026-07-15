@@ -4,7 +4,8 @@
 #     -f charts/bakery/values.yaml -f charts/bakery/values-uat.yaml \
 #     --set global.imageTag=$SHA \
 #     --set-string secrets.postgres.password=$POSTGRES_PASSWORD \
-#     --set-string secrets.authTokenSecret=$AUTH_TOKEN_SECRET
+#     --set-string secrets.authTokenSecret=$AUTH_TOKEN_SECRET \
+#     --set-string secrets.authPayloadSecret=$AUTH_PAYLOAD_SECRET
 #
 # No password/token/key below has a real value — every one is empty and is
 # required (Helm's `required` fails the render if it's still blank), so a
@@ -50,6 +51,7 @@ secretsManagement:
         POSTGRES_PASSWORD: ""
         POSTGRES_DB: ""
         AUTH_TOKEN_SECRET: ""
+        AUTH_PAYLOAD_SECRET: ""
     paymentSecret:
       remoteKeys:
         keyId: ""
@@ -67,6 +69,7 @@ secrets:
     password: ""
     db: bakery
   authTokenSecret: ""
+  authPayloadSecret: ""
   razorpay:
     keyId: ""
     keySecret: ""
@@ -144,6 +147,7 @@ services:
     secretEnv:
       - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
       - { name: AUTH_TOKEN_SECRET, secretName: bakery-db-secret, secretKey: AUTH_TOKEN_SECRET }
+      - { name: AUTH_PAYLOAD_SECRET, secretName: bakery-db-secret, secretKey: AUTH_PAYLOAD_SECRET }
 
   user-service:
     port: 3002

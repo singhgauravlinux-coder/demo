@@ -18,6 +18,7 @@ stringData:
   # Consumed by the Node services:
   DATABASE_URL: postgresql://bakery:change-me-in-prod@postgres:5432/bakery
   AUTH_TOKEN_SECRET: change-me-too-a-long-random-string
+  AUTH_PAYLOAD_SECRET: change-me-too-another-long-random-string
 ---
 apiVersion: v1
 kind: ConfigMap
