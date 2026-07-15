@@ -15,7 +15,7 @@
 global:
   envName: uat
   namespace: bakery-uat
-  imageTag: "ea8ee00"
+  imageTag: "4ac7b08"
 secretsManagement:
   mode: helm-values
 secrets:
