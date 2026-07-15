@@ -15,22 +15,18 @@
 global:
   envName: uat
   namespace: bakery-uat
-  imageTag: "b721ad0"
-
+  imageTag: "ea74cd1"
 secretsManagement:
   mode: helm-values
-
 secrets:
   postgresUser: postgres
   postgresPassword: postgres123
   postgresDb: bakery
   authTokenSecret: your-secret
-
   razorpay:
     keyId: bakery-uat-razorpay-key-id
     keySecret: bakery-uat-razorpay-key-secret
     webhookSecret: bakery-uat-razorpay-webhook-secret
-
 resourcePresets:
   small:
     requests:
