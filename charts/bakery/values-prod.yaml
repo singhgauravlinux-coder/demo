@@ -1,0 +1,94 @@
+# Prod overrides — synced by ArgoCD (see argocd/prod-application.yaml).
+#
+# GitOps flow: promotion to Prod is a PR that updates `global.imageTag`
+# below (opened by .github/workflows/promote-to-prod.yml, or by hand). A
+# human merging that PR is the deploy approval — GitHub Actions never
+# touches the cluster. ArgoCD's Prod Application has no automated sync
+# policy on purpose: after the PR merges, a human runs
+# `argocd app sync bakery-prod` (or clicks Sync in the UI) as the final,
+# explicit gate.
+#
+# Secrets: mode is "external-secrets" — real values live in your secret
+# backend, never in this file or in git.
+
+global:
+  envName: prod
+  namespace: bakery-prod
+  imagePullPolicy: IfNotPresent
+  # Overwritten only via a reviewed PR — see promote-to-prod.yml.
+  imageTag: "replace-with-promoted-sha"
+
+secretsManagement:
+  mode: external-secrets
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: azure-keyvault-prod    # <-- point at your Prod SecretStore/ClusterSecretStore
+      kind: ClusterSecretStore
+    dbSecret:
+      remoteKeys:
+        POSTGRES_USER: bakery-prod-postgres-user
+        POSTGRES_PASSWORD: bakery-prod-postgres-password
+        POSTGRES_DB: bakery-prod-postgres-db
+        AUTH_TOKEN_SECRET: bakery-prod-auth-token-secret
+    paymentSecret:
+      remoteKeys:
+        keyId: bakery-prod-razorpay-key-id
+        keySecret: bakery-prod-razorpay-key-secret
+        webhookSecret: bakery-prod-razorpay-webhook-secret
+
+resourcePresets:
+  small:
+    requests: { cpu: 75m, memory: 96Mi }
+    limits: { cpu: 300m, memory: 192Mi }
+  medium:
+    requests: { cpu: 150m, memory: 192Mi }
+    limits: { cpu: 750m, memory: 384Mi }
+  large:
+    requests: { cpu: 300m, memory: 384Mi }
+    limits: { cpu: "2", memory: 768Mi }
+
+postgres:
+  storage: 20Gi
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 1Gi }
+
+redis:
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# Update to your real production hostname + TLS secret (e.g. issued by
+# cert-manager) before going live.
+ingress:
+  host: bakery.example.com
+  dbHost: db.bakery.internal
+  adminer:
+    enabled: false   # keep the DB UI off the public ingress in prod
+  tls:
+    enabled: true
+    secretName: bakery-tls
+
+services:
+  auth-service: { replicas: 2 }
+  user-service: { replicas: 2 }
+  product-catalog-service: { replicas: 2 }
+  order-service: { replicas: 2 }
+  payment-service: { replicas: 2, resourcePreset: medium }
+  cart-service: { replicas: 2 }
+  api-gateway:
+    replicas: 3
+    resourcePreset: medium
+    hpa:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 10
+  frontend:
+    replicas: 3
+    resourcePreset: medium
+    hpa:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 8

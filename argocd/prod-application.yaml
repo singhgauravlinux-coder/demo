@@ -1,0 +1,35 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bakery-prod
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: bakery
+  source:
+    repoURL: "https://github.com/singhgauravlinux-coder/demo-bakery.git"   # <-- update to your fork/remote
+    targetRevision: main
+    path: charts/bakery
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+  destination:
+    server: "https://kubernetes.default.svc"
+    namespace: bakery-prod
+  syncPolicy:
+    # No `automated:` block on purpose. ArgoCD will show Prod as
+    # OutOfSync as soon as a promotion PR merges, but will NOT touch the
+    # cluster until someone explicitly runs `argocd app sync bakery-prod`
+    # (or clicks Sync in the UI). That manual click is the final approval
+    # gate, on top of the PR review gate in promote-to-prod.yml.
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m

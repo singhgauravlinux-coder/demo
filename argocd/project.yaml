@@ -1,0 +1,31 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: bakery
+  namespace: argocd
+spec:
+  description: Crumb & Ember bakery microservices — UAT and Prod
+  sourceRepos:
+    - "https://github.com/singhgauravlinux-coder/demo-bakery.git"   # <-- update to your fork/remote
+  destinations:
+    - namespace: bakery-uat
+      server: "https://kubernetes.default.svc"
+    - namespace: bakery-prod
+      server: "https://kubernetes.default.svc"
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+  namespaceResourceWhitelist:
+    - group: "*"
+      kind: "*"
+  roles:
+    - name: uat-deployer
+      description: Can sync UAT only
+      policies:
+        - p, proj:bakery:uat-deployer, applications, sync, bakery/bakery-uat, allow
+      groups: []
+    - name: prod-deployer
+      description: Can sync Prod only — restrict this group in your SSO/RBAC config
+      policies:
+        - p, proj:bakery:prod-deployer, applications, sync, bakery/bakery-prod, allow
+      groups: []

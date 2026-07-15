@@ -1,0 +1,68 @@
+name: Promote to Prod
+
+# ---------------------------------------------------------------------------
+# Also CI-only — this workflow never touches a cluster. It opens a Pull
+# Request that bumps `global.imageTag` in charts/bakery/values-prod.yaml to
+# whatever tag you're promoting (defaults to UAT's current tag). Merging
+# that PR (branch-protection-enforced review) is the deploy approval.
+#
+# After merge, ArgoCD's Prod Application (argocd/prod-application.yaml) is
+# intentionally NOT auto-synced — a human still has to run
+# `argocd app sync bakery-prod` (or click Sync in the UI). That's the
+# second, explicit approval gate, entirely inside ArgoCD, outside GitHub
+# Actions.
+# ---------------------------------------------------------------------------
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag to promote to Prod (defaults to UAT's current tag if left blank)"
+        required: false
+        default: ""
+
+jobs:
+  open-prod-promotion-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up yq
+        uses: mikefarah/yq@v4.44.3
+
+      - name: Resolve tag to promote
+        id: resolve
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.image_tag }}"
+          if [[ -z "$TAG" ]]; then
+            TAG="$(yq '.global.imageTag' charts/bakery/values-uat.yaml)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Promoting tag: ${TAG}"
+
+      - name: Bump global.imageTag in values-prod.yaml
+        run: |
+          set -euo pipefail
+          yq -i '.global.imageTag = "${{ steps.resolve.outputs.tag }}"' charts/bakery/values-prod.yaml
+
+      - name: Open pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(prod): promote image tag ${{ steps.resolve.outputs.tag }}"
+          branch: promote-prod-${{ steps.resolve.outputs.tag }}
+          title: "Promote ${{ steps.resolve.outputs.tag }} to Prod"
+          body: |
+            Bumps `global.imageTag` in `charts/bakery/values-prod.yaml` to
+            `${{ steps.resolve.outputs.tag }}`.
+
+            Merging this PR is the Prod deploy approval. After merge, run
+            `argocd app sync bakery-prod` (or click Sync in the ArgoCD UI) —
+            the Prod Application is manual-sync-only on purpose.
+          labels: prod-promotion

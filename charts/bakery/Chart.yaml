@@ -1,0 +1,20 @@
+apiVersion: v2
+name: bakery
+description: >
+  Crumb & Ember — cloud-native bakery microservices platform.
+  One chart deploys the full stack (Postgres, Redis, Adminer, gateway,
+  storefront, and every domain/platform microservice incl. currency-service
+  and language-service) to any environment via a values file
+  (values-uat.yaml / values-prod.yaml). All credentials are supplied at
+  install/upgrade time via --set/--set-file from your secrets manager or
+  CI/CD secret store — none are baked into the chart.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - bakery
+  - microservices
+  - ecommerce
+home: https://github.com/singhgauravlinux-coder/demo-bakery
+maintainers:
+  - name: crumb-and-ember

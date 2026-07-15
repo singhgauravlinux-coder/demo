@@ -1,0 +1,143 @@
+name: CI — Build, Push & Update UAT Image Tag
+
+# ---------------------------------------------------------------------------
+# This workflow is CI only. It never talks to a Kubernetes cluster and holds
+# no cluster credentials or application secrets (POSTGRES_PASSWORD,
+# AUTH_TOKEN_SECRET, Razorpay keys, etc.) — those live in your secret
+# backend (Azure Key Vault / AWS Secrets Manager / Vault) and are pulled
+# in-cluster by External Secrets Operator, per charts/bakery/values-uat.yaml
+# and values-prod.yaml (secretsManagement.mode: external-secrets).
+#
+# CD is entirely ArgoCD's job:
+#   - This workflow's only cluster-adjacent action is a git commit that bumps
+#     `global.imageTag` in charts/bakery/values-uat.yaml.
+#   - ArgoCD's UAT Application (argocd/uat-application.yaml) has automated
+#     sync + selfHeal, so it picks up that commit and rolls UAT out on its
+#     own — no GitHub Actions job ever runs `helm upgrade`/`kubectl apply`.
+#   - Promoting the same tag to Prod is a separate, PR-gated workflow
+#     (.github/workflows/promote-to-prod.yml) — see that file.
+# ---------------------------------------------------------------------------
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "charts/**"     # commits made BY this workflow must not retrigger it
+      - "argocd/**"
+      - "README.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ${{ github.repository }}
+
+jobs:
+  # ------------------------------------------------------------ build images
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - auth-service
+          - user-service
+          - product-catalog-service
+          - inventory-service
+          - pricing-service
+          - cart-service
+          - order-service
+          - payment-service
+          - delivery-service
+          - notification-service
+          - review-service
+          - search-service
+          - recommendation-service
+          - promotion-service
+          - loyalty-service
+          - recipe-service
+          - baking-schedule-service
+          - supplier-service
+          - analytics-service
+          - media-service
+          - invoice-service
+          - currency-service
+          - language-service
+          - api-gateway
+          - frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.service }}
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: services/${{ matrix.service }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ------------------------------------------- bump UAT's image tag in git
+  # This is the ENTIRE hand-off to ArgoCD: update one line, commit, push.
+  # No kubeconfig, no helm, no kubectl — ArgoCD's own auto-sync does the rest.
+  update-uat-image-tag:
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up yq
+        uses: mikefarah/yq@v4.44.3
+
+      - name: Bump global.imageTag in values-uat.yaml
+        run: |
+          set -euo pipefail
+          SHA="${GITHUB_SHA::7}"
+          yq -i ".global.imageTag = \"${SHA}\"" charts/bakery/values-uat.yaml
+          echo "UAT image tag -> ${SHA}"
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- charts/bakery/values-uat.yaml; then
+            echo "UAT image tag already up to date — nothing to commit."
+            exit 0
+          fi
+          git add charts/bakery/values-uat.yaml
+          git commit -m "ci: bump UAT image tag to ${GITHUB_SHA::7} [skip ci]"
+          git push origin main

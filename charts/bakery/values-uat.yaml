@@ -1,0 +1,79 @@
+# UAT overrides — synced by ArgoCD (see argocd/uat-application.yaml).
+#
+# GitOps flow: GitHub Actions CI builds & pushes images, then commits the
+# new `global.imageTag` into THIS file on the main branch (see
+# .github/workflows/ci.yml, job `update-uat-image-tag`). ArgoCD's UAT
+# Application auto-syncs on every change to this file — that auto-sync *is*
+# the CD step, entirely outside of GitHub Actions.
+#
+# Secrets: mode is "external-secrets" — real values live in your secret
+# backend (Azure Key Vault / AWS Secrets Manager / Vault), never in this
+# file or in git. Fill in secretStoreRef.name and the remoteKeys paths below
+# to match your backend, then apply argocd/*-secretstore.yaml once per
+# cluster (not part of this chart).
+
+global:
+  envName: uat
+  namespace: bakery-uat
+  # Overwritten by CI on every merge to main — see ci.yml.
+  imageTag: "replace-with-ci-sha"
+
+secretsManagement:
+  mode: external-secrets
+  externalSecrets:
+    enabled: true
+    refreshInterval: 1h
+    secretStoreRef:
+      name: azure-keyvault-uat     # <-- point at your UAT SecretStore/ClusterSecretStore
+      kind: ClusterSecretStore
+    dbSecret:
+      remoteKeys:
+        POSTGRES_USER: bakery-uat-postgres-user
+        POSTGRES_PASSWORD: bakery-uat-postgres-password
+        POSTGRES_DB: bakery-uat-postgres-db
+        AUTH_TOKEN_SECRET: bakery-uat-auth-token-secret
+    paymentSecret:
+      remoteKeys:
+        keyId: bakery-uat-razorpay-key-id
+        keySecret: bakery-uat-razorpay-key-secret
+        webhookSecret: bakery-uat-razorpay-webhook-secret
+
+resourcePresets:
+  small:
+    requests: { cpu: 25m, memory: 48Mi }
+    limits: { cpu: 150m, memory: 96Mi }
+  medium:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 300m, memory: 192Mi }
+  large:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+postgres:
+  storage: 2Gi
+
+redis:
+  persistence:
+    enabled: false
+
+ingress:
+  host: uat.bakery.local
+  dbHost: db-uat.bakery.local
+  adminer:
+    enabled: true   # convenient for UAT data inspection; disabled in prod
+  tls:
+    enabled: false
+
+services:
+  api-gateway:
+    replicas: 1
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 2
+  frontend:
+    replicas: 1
+    hpa:
+      enabled: true
+      minReplicas: 1
+      maxReplicas: 2

@@ -1,0 +1,303 @@
+# Base defaults. Do NOT deploy this file alone to a shared environment —
+# always layer values-uat.yaml or values-prod.yaml on top, e.g.:
+#   helm upgrade --install bakery ./charts/bakery \
+#     -f charts/bakery/values.yaml -f charts/bakery/values-uat.yaml \
+#     --set global.imageTag=$SHA \
+#     --set-string secrets.postgres.password=$POSTGRES_PASSWORD \
+#     --set-string secrets.authTokenSecret=$AUTH_TOKEN_SECRET
+#
+# No password/token/key below has a real value — every one is empty and is
+# required (Helm's `required` fails the render if it's still blank), so a
+# deploy simply cannot proceed without secrets being injected from your
+# secret store / CI-CD environment secrets.
+
+global:
+  envName: dev
+  namespace: bakery
+  createNamespace: true
+  imageRegistry: ghcr.io/singhgauravlinux-coder/demo-bakery
+  imageTag: latest
+  imagePullPolicy: Always
+  logLevel: info
+  imagePullSecret:
+    enabled: false
+    name: ghcr-creds
+
+# ---------------------------------------------------------------------------
+# Secrets — every value here must be supplied at install/upgrade time via
+# --set-string (or --set-file) from a real secret store / CI secret. Never
+# commit real values into this file or into values-uat.yaml / values-prod.yaml.
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Secrets management — see templates/secrets.yaml / external-secrets.yaml for
+# the full explanation of each mode. CI never sets any of this; ArgoCD syncs
+# whatever mode + values are committed in values-uat.yaml / values-prod.yaml.
+# ---------------------------------------------------------------------------
+secretsManagement:
+  # helm-values: for local/manual `helm install --set-string ...` only.
+  # UAT/Prod override this to "external-secrets" (see values-uat.yaml).
+  mode: helm-values
+
+  externalSecrets:
+    enabled: false
+    refreshInterval: 1h
+    secretStoreRef:
+      name: ""                     # e.g. azure-keyvault-uat / azure-keyvault-prod
+      kind: ClusterSecretStore
+    dbSecret:
+      remoteKeys:
+        POSTGRES_USER: ""          # e.g. bakery-uat-postgres-user
+        POSTGRES_PASSWORD: ""
+        POSTGRES_DB: ""
+        AUTH_TOKEN_SECRET: ""
+    paymentSecret:
+      remoteKeys:
+        keyId: ""
+        keySecret: ""
+        webhookSecret: ""
+    imagePullSecret:
+      remoteKey: ""                # leave blank to skip; only used if global.imagePullSecret.enabled
+
+# Only consumed when secretsManagement.mode == "helm-values". Every value is
+# blank on purpose — Helm's `required` fails the render until you pass real
+# values via --set-string at install/upgrade time for a local test deploy.
+secrets:
+  postgres:
+    user: bakery
+    password: ""
+    db: bakery
+  authTokenSecret: ""
+  razorpay:
+    keyId: ""
+    keySecret: ""
+    webhookSecret: ""
+  dockerConfigJson: ""
+
+# ---------------------------------------------------------------------------
+# Resource sizing presets, referenced by name from each service below.
+# Override just these three blocks per environment instead of repeating
+# resources for all 24 services in every values file.
+# ---------------------------------------------------------------------------
+resourcePresets:
+  small:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+  medium:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  large:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+postgres:
+  enabled: true
+  image: postgres:16-alpine
+  storage: 5Gi
+  storageClassName: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  maxMemory: 128mb
+  persistence:
+    enabled: false
+    size: 1Gi
+  storageClassName: ""
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 192Mi }
+
+adminer:
+  enabled: true
+  image: adminer:4
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+ingress:
+  enabled: true
+  className: traefik
+  entrypoint: web
+  host: bakery.local
+  dbHost: db.bakery.local
+  bodyLimitBytes: 5242880
+  annotations: {}
+  adminer:
+    enabled: true
+  tls:
+    enabled: false
+    secretName: ""
+
+# ---------------------------------------------------------------------------
+# Every microservice — one Deployment + one Service each, rendered by
+# templates/services.yaml. secretEnv entries pull straight from the Secret
+# objects created in templates/secrets.yaml (never inline values).
+# ---------------------------------------------------------------------------
+services:
+  auth-service:
+    port: 3001
+    replicas: 1
+    resourcePreset: small
+    secretEnv:
+      - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
+      - { name: AUTH_TOKEN_SECRET, secretName: bakery-db-secret, secretKey: AUTH_TOKEN_SECRET }
+
+  user-service:
+    port: 3002
+    replicas: 1
+    resourcePreset: small
+    secretEnv:
+      - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
+
+  product-catalog-service:
+    port: 3003
+    replicas: 1
+    resourcePreset: small
+    secretEnv:
+      - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
+
+  inventory-service:
+    port: 3004
+    replicas: 1
+    resourcePreset: small
+
+  pricing-service:
+    port: 3005
+    replicas: 1
+    resourcePreset: small
+
+  cart-service:
+    port: 3006
+    replicas: 1
+    resourcePreset: small
+
+  order-service:
+    port: 3007
+    replicas: 1
+    resourcePreset: small
+    secretEnv:
+      - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
+
+  payment-service:
+    port: 3008
+    replicas: 1
+    resourcePreset: small
+    secretEnv:
+      - { name: DATABASE_URL, secretName: bakery-db-secret, secretKey: DATABASE_URL }
+      - { name: RAZORPAY_KEY_ID, secretName: razorpay-credentials, secretKey: keyId, optional: true }
+      - { name: RAZORPAY_KEY_SECRET, secretName: razorpay-credentials, secretKey: keySecret, optional: true }
+      - { name: RAZORPAY_WEBHOOK_SECRET, secretName: razorpay-credentials, secretKey: webhookSecret, optional: true }
+
+  delivery-service:
+    port: 3009
+    replicas: 1
+    resourcePreset: small
+
+  notification-service:
+    port: 3010
+    replicas: 1
+    resourcePreset: small
+
+  review-service:
+    port: 3011
+    replicas: 1
+    resourcePreset: small
+
+  search-service:
+    port: 3012
+    replicas: 1
+    resourcePreset: small
+
+  recommendation-service:
+    port: 3013
+    replicas: 1
+    resourcePreset: small
+
+  promotion-service:
+    port: 3014
+    replicas: 1
+    resourcePreset: small
+
+  loyalty-service:
+    port: 3015
+    replicas: 1
+    resourcePreset: small
+
+  recipe-service:
+    port: 3016
+    replicas: 1
+    resourcePreset: small
+
+  baking-schedule-service:
+    port: 3017
+    replicas: 1
+    resourcePreset: small
+
+  supplier-service:
+    port: 3018
+    replicas: 1
+    resourcePreset: small
+
+  analytics-service:
+    port: 3019
+    replicas: 1
+    resourcePreset: small
+
+  media-service:
+    port: 3020
+    replicas: 1
+    resourcePreset: small
+
+  invoice-service:
+    port: 3021
+    replicas: 1
+    resourcePreset: small
+
+  currency-service:
+    port: 3022
+    replicas: 1
+    resourcePreset: small
+
+  language-service:
+    port: 3023
+    replicas: 1
+    resourcePreset: small
+
+  api-gateway:
+    port: 3000
+    replicas: 2
+    resourcePreset: small
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 6
+      targetCPUUtilization: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+
+  frontend:
+    port: 8080
+    replicas: 2
+    resourcePreset: small
+    runAsUser: 101
+    runAsGroup: 101
+    readinessPath: /healthz
+    livenessPath: /healthz
+    hpa:
+      enabled: true
+      minReplicas: 2
+      maxReplicas: 4
+      targetCPUUtilization: 70
+    pdb:
+      enabled: true
+      minAvailable: 1
+    extraVolumeMounts:
+      - name: tmp
+        mountPath: /tmp
+    extraVolumes:
+      - name: tmp
+        emptyDir: {}

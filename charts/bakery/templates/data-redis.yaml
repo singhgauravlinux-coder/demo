@@ -1,0 +1,94 @@
+{{- $ns := include "bakery.namespace" . -}}
+{{- if .Values.redis.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: {{ $ns }}
+  labels:
+    app: redis
+    {{- include "bakery.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          args:
+            - redis-server
+            - --maxmemory
+            - {{ .Values.redis.maxMemory | quote }}
+            - --maxmemory-policy
+            - allkeys-lru
+            - --appendonly
+            - "yes"
+            - --dir
+            - /data
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if .Values.redis.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: redis-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- if .Values.redis.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-data
+  namespace: {{ $ns }}
+  labels:
+    {{- include "bakery.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- if .Values.redis.storageClassName }}
+  storageClassName: {{ .Values.redis.storageClassName }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.redis.persistence.size }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ $ns }}
+  labels:
+    app: redis
+spec:
+  selector:
+    app: redis
+  ports:
+    - port: 6379
+      targetPort: 6379
+{{- end }}

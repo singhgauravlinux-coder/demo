@@ -1,0 +1,78 @@
+{{- $ns := include "bakery.namespace" . -}}
+{{- if .Values.ingress.enabled }}
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: body-limit
+  namespace: {{ $ns }}
+spec:
+  buffering:
+    maxRequestBodyBytes: {{ .Values.ingress.bodyLimitBytes }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bakery-ingress
+  namespace: {{ $ns }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.middlewares: {{ $ns }}-body-limit@kubernetescrd
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ .Values.ingress.entrypoint }}
+    {{- if .Values.ingress.tls.enabled }}
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: {{ (index .Values.services "api-gateway").port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: {{ (index .Values.services "frontend").port }}
+{{- if .Values.ingress.adminer.enabled }}
+---
+# DB frontend (Adminer). Keep this off public DNS or protect it with a
+# Traefik basicAuth middleware / disable via ingress.adminer.enabled=false
+# (recommended for prod — use kubectl port-forward instead).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bakery-db-ingress
+  namespace: {{ $ns }}
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: {{ .Values.ingress.entrypoint }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.dbHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: adminer
+                port:
+                  number: 8080
+{{- end }}
+{{- end }}

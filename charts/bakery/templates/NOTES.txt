@@ -1,0 +1,23 @@
+Crumb & Ember ({{ .Values.global.envName }}) deployed as release {{ .Release.Name }}
+in namespace {{ include "bakery.namespace" . }}.
+
+Check rollout status:
+  kubectl -n {{ include "bakery.namespace" . }} get pods
+
+{{- if .Values.ingress.enabled }}
+
+Storefront:  http://{{ .Values.ingress.host }}
+API gateway: http://{{ .Values.ingress.host }}/api
+Swagger UI:  http://{{ .Values.ingress.host }}/api/docs
+{{- if .Values.ingress.adminer.enabled }}
+Adminer:     http://{{ .Values.ingress.dbHost }}
+{{- end }}
+
+Point your ingress controller's external IP at the host(s) above (e.g. via
+/etc/hosts for bakery.local-style dev/UAT domains, or real DNS for prod).
+{{- end }}
+
+Reminder: every password/token/API key in this release was supplied at
+deploy time via --set-string / CI secrets — nothing is stored in the chart
+itself. Rotate a credential by re-running the deploy with a new secret
+value; no template changes are needed.

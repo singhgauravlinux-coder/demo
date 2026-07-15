@@ -1,0 +1,102 @@
+{{- $root := . -}}
+{{- $ns := include "bakery.namespace" . -}}
+{{- range $name, $svc := .Values.services }}
+{{- $presetName := $svc.resourcePreset | default "small" }}
+{{- $preset := index $root.Values.resourcePresets $presetName }}
+{{- $runAsUser := $svc.runAsUser | default 1000 }}
+{{- $runAsGroup := $svc.runAsGroup | default 1000 }}
+{{- $readyPath := $svc.readinessPath | default "/ready" }}
+{{- $livePath := $svc.livenessPath | default "/health" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    app: {{ $name }}
+    {{- include "bakery.labels" $root | nindent 4 }}
+spec:
+  replicas: {{ $svc.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: {{ $name }}
+    spec:
+      {{- if $root.Values.global.imagePullSecret.enabled }}
+      imagePullSecrets:
+        - name: {{ $root.Values.global.imagePullSecret.name }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ $runAsUser }}
+        runAsGroup: {{ $runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: {{ $name }}
+          image: {{ include "bakery.image" (list $root $name $svc.tag) | trim }}
+          imagePullPolicy: {{ $root.Values.global.imagePullPolicy }}
+          ports:
+            - containerPort: {{ $svc.port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: SERVICE_NAME
+              value: {{ $name | quote }}
+            - name: PORT
+              value: {{ $svc.port | quote }}
+            - name: LOG_LEVEL
+              value: {{ $root.Values.global.logLevel | quote }}
+            {{- range $svc.secretEnv }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .secretName }}
+                  key: {{ .secretKey }}
+                  optional: {{ .optional | default false }}
+            {{- end }}
+          {{- if $svc.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml $svc.extraVolumeMounts | nindent 12 }}
+          {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ $readyPath }}
+              port: {{ $svc.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: {{ $livePath }}
+              port: {{ $svc.port }}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml $preset | nindent 12 }}
+      {{- if $svc.extraVolumes }}
+      volumes:
+        {{- toYaml $svc.extraVolumes | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ $ns }}
+  labels:
+    app: {{ $name }}
+spec:
+  selector:
+    app: {{ $name }}
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+      protocol: TCP
+---
+{{- end }}
