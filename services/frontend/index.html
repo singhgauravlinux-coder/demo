@@ -300,6 +300,9 @@
     <div class="search-box">
       <input id="search" type="search" placeholder="Search the bakes…" aria-label="Search products" />
     </div>
+    <select class="currency-select" id="language-select" aria-label="Display language" title="Display language">
+      <option value="en">English</option>
+    </select>
     <select class="currency-select" id="currency-select" aria-label="Display currency" title="Display currency">
       <option value="EUR">€ EUR</option>
     </select>
@@ -683,6 +686,90 @@
     }
   }).catch(function () {});
 
+  // ------------------------------------------------------------ language
+  // English is the fallback locale; the picker below is fed by the
+  // language-service catalog, and each selection pulls a fresh UI string
+  // bundle that re-renders the chrome (nav, buttons, totals, toasts).
+  var FALLBACK_LANGUAGES = [
+    { code: 'en', name: 'English', nativeName: 'English', direction: 'ltr' },
+    { code: 'es', name: 'Spanish', nativeName: 'Español', direction: 'ltr' },
+    { code: 'fr', name: 'French', nativeName: 'Français', direction: 'ltr' },
+    { code: 'de', name: 'German', nativeName: 'Deutsch', direction: 'ltr' },
+    { code: 'hi', name: 'Hindi', nativeName: 'हिन्दी', direction: 'ltr' },
+    { code: 'ar', name: 'Arabic', nativeName: 'العربية', direction: 'rtl' }
+  ];
+  var FALLBACK_STRINGS = {
+    nav_home: 'Home', nav_products: 'Products', nav_cart: 'Basket',
+    action_add_to_cart: 'Add', action_checkout: 'Place order', action_search: 'Search the bakes…',
+    label_total: 'Total', label_out_of_stock: 'Out of Stock',
+    msg_order_confirmed: 'Order placed', msg_welcome: 'Welcome to Crumb & Ember'
+  };
+  var languages = FALLBACK_LANGUAGES.slice();
+  var lang = localStorage.getItem('crumb.lang') || 'en';
+  var I18N = { lang: lang, direction: 'ltr', strings: Object.assign({}, FALLBACK_STRINGS) };
+
+  function renderLanguageOptions() {
+    var sel = document.getElementById('language-select');
+    sel.innerHTML = '';
+    languages.forEach(function (l) {
+      var o = document.createElement('option');
+      o.value = l.code;
+      o.textContent = l.nativeName || l.name;
+      sel.appendChild(o);
+    });
+    sel.value = lang;
+  }
+  renderLanguageOptions();
+
+  function applyStrings() {
+    document.documentElement.lang = I18N.lang;
+    document.documentElement.dir = I18N.direction || 'ltr';
+    var searchInput = document.getElementById('search');
+    if (searchInput) {
+      searchInput.placeholder = I18N.strings.action_search;
+      searchInput.setAttribute('aria-label', I18N.strings.action_search);
+    }
+    var checkoutBtn = document.getElementById('checkout-btn');
+    if (checkoutBtn) checkoutBtn.textContent = I18N.strings.action_checkout + ' →';
+    var cartBtn = document.getElementById('cart-btn');
+    if (cartBtn) {
+      var badge = document.getElementById('cart-badge');
+      cartBtn.textContent = '🧺 ' + I18N.strings.nav_cart;
+      if (badge) cartBtn.appendChild(badge); // textContent above wipes the badge node, so re-attach it
+    }
+    renderProducts();
+    renderCart();
+  }
+
+  function loadStrings(code) {
+    return getJSON('/language/strings?lang=' + encodeURIComponent(code)).then(function (d) {
+      if (d && d.strings) {
+        I18N = { lang: d.lang, direction: d.direction || 'ltr', strings: d.strings };
+      }
+    }).catch(function () {
+      I18N = { lang: code, direction: (languages.find(function (l) { return l.code === code; }) || {}).direction || 'ltr', strings: Object.assign({}, FALLBACK_STRINGS) };
+    });
+  }
+
+  document.getElementById('language-select').addEventListener('change', function () {
+    lang = this.value;
+    localStorage.setItem('crumb.lang', lang);
+    loadStrings(lang).then(function () {
+      applyStrings();
+      toast(I18N.strings.msg_welcome);
+      track('language_changed', { language: lang });
+    });
+  });
+
+  getJSON('/language').then(function (d) {
+    if (d && d.languages && d.languages.length) {
+      languages = d.languages;
+      if (!languages.some(function (l) { return l.code === lang; })) lang = d.default || 'en';
+      renderLanguageOptions();
+      return loadStrings(lang);
+    }
+  }).then(function () { applyStrings(); }).catch(function () { applyStrings(); });
+
   try { session = JSON.parse(localStorage.getItem('crumb.session') || 'null'); } catch (e) { session = null; }
   function cartUser() { return session ? session.userId : 'guest'; }
 
@@ -898,7 +985,7 @@
           '<p class="desc"></p>' +
           '<div class="stars" data-stars></div>' +
           '<div class="row"><span class="price">' + euro(p.price) + '</span>' +
-          '<button class="btn pink add-btn">Add 🧺</button></div>' +
+          '<button class="btn pink add-btn">' + I18N.strings.action_add_to_cart + ' 🧺</button></div>' +
         '</div>';
       card.querySelector('h3').textContent = p.name;
       card.querySelector('.desc').textContent = p.description;
@@ -1036,7 +1123,7 @@
     totals.innerHTML =
       '<div><span>Subtotal</span><span>' + euro(subtotal) + '</span></div>' +
       (promo ? '<div style="color:var(--pist)"><span>' + promo.code + ' (−' + promo.percentOff + '%)</span><span>−' + euro(discount) + '</span></div>' : '') +
-      '<div class="grand"><span>Total</span><span>' + euro(total) + '</span></div>';
+      '<div class="grand"><span>' + I18N.strings.label_total + '</span><span>' + euro(total) + '</span></div>';
   }
 
   document.getElementById('cart-btn').addEventListener('click', function () { openPanel('cart-drawer'); });
@@ -1113,7 +1200,7 @@
           (delivery.mode === 'bike' ? ' · rider ETA ' + new Date(delivery.eta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ' · pickup at counter') +
           (invoice && invoice.id ? ' · invoice ' + invoice.id : '') +
           (loyalty ? ' · ' + loyalty.points + ' loyalty pts' : '');
-        toast('Order placed 🥖🎉');
+        toast(I18N.strings.msg_order_confirmed + ' 🥖🎉');
         track('order_placed', { orderId: order.id, total: total });
       })
       .catch(function (e) {
