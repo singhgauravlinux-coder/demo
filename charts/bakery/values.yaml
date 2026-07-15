@@ -15,7 +15,7 @@ global:
   envName: dev
   namespace: bakery
   createNamespace: true
-  imageRegistry: ghcr.io/singhgauravlinux-coder/demo-bakery
+  imageRegistry: ghcr.io/singhgauravlinux-coder/demo
   imageTag: latest
   imagePullPolicy: Always
   logLevel: info
