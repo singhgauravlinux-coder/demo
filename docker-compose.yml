@@ -100,6 +100,7 @@ services:
       PORT: "3001"
       DATABASE_URL: postgresql://${POSTGRES_USER:-bakery}:${POSTGRES_PASSWORD:-bakery}@postgres:5432/${POSTGRES_DB:-bakery}
       AUTH_TOKEN_SECRET: ${AUTH_TOKEN_SECRET:-local-dev-token-secret}
+      AUTH_PAYLOAD_SECRET: ${AUTH_PAYLOAD_SECRET:-local-dev-payload-secret}
     depends_on:
       postgres:
         condition: service_healthy
